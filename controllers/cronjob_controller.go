@@ -18,7 +18,7 @@ package controllers
 import (
 	"context"
 	// "fmt"
-	// "sort"
+	"sort"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -177,6 +177,44 @@ func (r *CronJobReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
 	if err := r.Status().Update(ctx, &cronJob); err != nil {
 		log.Error(err, "unable to update CronJob status")
 		return ctrl.Result{}, err
+	}
+
+	// 3: Clean up old jobs according to the history limit
+
+	// NB: deleting these is "best effort" -- if we fail on a particular one,
+	// we won't requeue just to finish the deleting.
+	if cronJob.Spec.FailedJobsHistoryLimit != nil {
+		sort.Slice(failedJobs, func(i, j int) bool {
+			if failedJobs[i].Status.StartTime == nil {
+				return failedJobs[j].Status.StartTime != nil
+			}
+			return failedJobs[i].Status.StartTime.Before(failedJobs[j].Status.StartTime)
+		})
+		for i, job := range failedJobs {
+			if err := r.Delete(ctx, job); err != nil {
+				log.Error(err, "unable to delete old failed job", "job", job)
+			}
+			if int32(i) >= *cronJob.Spec.FailedJobsHistoryLimit {
+				break
+			}
+		}
+	}
+
+	if cronJob.Spec.SuccessfulJobsHistoryLimit != nil {
+		sort.Slice(successfulJobs, func(i, j int) bool {
+			if successfulJobs[i].Status.StartTime == nil {
+				return successfulJobs[j].Status.StartTime != nil
+			}
+			return successfulJobs[i].Status.StartTime.Before(successfulJobs[j].Status.StartTime)
+		})
+		for i, job := range successfulJobs {
+			if err := r.Delete(ctx, job); err != nil {
+				log.Error(err, "unable to delete old successful job", "job", job)
+			}
+			if int32(i) >= *cronJob.Spec.SuccessfulJobsHistoryLimit {
+				break
+			}
+		}
 	}
 
 	return ctrl.Result{}, nil
