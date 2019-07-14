@@ -383,7 +383,10 @@ func (r *CronJobReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
 
 	log.V(1).Info("created Job for CronJob run", "job", job)
 
-	return ctrl.Result{}, nil
+	// 7: Requeue when we either see a running job or it’s time for the next scheduled run
+
+	// we'll requeue once we see the running job, and update our status
+	return scheduledResult, nil
 }
 
 func (r *CronJobReconciler) SetupWithManager(mgr ctrl.Manager) error {
