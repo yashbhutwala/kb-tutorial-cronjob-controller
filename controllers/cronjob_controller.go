@@ -315,7 +315,7 @@ func (r *CronJobReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
 		return scheduledResult, nil
 	}
 
-	// If we actually have to run a job, we’ll need to either wait till existing ones finish, replace the existing ones, or just add new ones. If our information is out of date due to cache delay, we’ll get a requeue when we get up-to-date information.
+	// 6b: If we actually have to run a job, we’ll need to either wait till existing ones finish, replace the existing ones, or just add new ones. If our information is out of date due to cache delay, we’ll get a requeue when we get up-to-date information.
 
 	// figure out how to run this job -- concurrency policy might forbid us from running
 	// multiple at the same time...
@@ -334,6 +334,54 @@ func (r *CronJobReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
 			}
 		}
 	}
+
+	// 6c: Once we've figured out what to do with existing jobs, we'll actually create our desired job
+
+	// We need to construct a job based on our CronJob’s template. We’ll copy over the spec from the template and copy some basic object meta.
+	// Then, we’ll set the “scheduled time” annotation so that we can reconstitute our LastScheduleTime field each reconcile.
+	// Finally, we’ll need to set an owner reference. This allows the Kubernetes garbage collector to clean up jobs when we delete the CronJob, and allows controller-runtime to figure out which cronjob needs to be reconciled when a given job changes (is added, deleted, completes, etc).
+	constructJobForCronJob := func(cronJob *batchv1.CronJob, scheduledTime time.Time) (*kbatch.Job, error) {
+		// We want job names for a given nominal start time to have a deterministic name to avoid the same job being created twice
+		name := fmt.Sprintf("%s-%d", cronJob.Name, scheduledTime.Unix())
+
+		job := &kbatch.Job{
+			ObjectMeta: metav1.ObjectMeta{
+				Labels:      make(map[string]string),
+				Annotations: make(map[string]string),
+				Name:        name,
+				Namespace:   cronJob.Namespace,
+			},
+			Spec: *cronJob.Spec.JobTemplate.Spec.DeepCopy(),
+		}
+		for k, v := range cronJob.Spec.JobTemplate.Annotations {
+			job.Annotations[k] = v
+		}
+		job.Annotations[scheduledTimeAnnotation] = scheduledTime.Format(time.RFC3339)
+		for k, v := range cronJob.Spec.JobTemplate.Labels {
+			job.Labels[k] = v
+		}
+		if err := ctrl.SetControllerReference(cronJob, job, r.Scheme); err != nil {
+			return nil, err
+		}
+
+		return job, nil
+	}
+
+	// actually make the job...
+	job, err := constructJobForCronJob(&cronJob, *missedRun)
+	if err != nil {
+		log.Error(err, "unable to construct job from template")
+		// don't bother requeuing until we get a change to the spec
+		return scheduledResult, nil
+	}
+
+	// ...and create it on the cluster
+	if err := r.Create(ctx, job); err != nil {
+		log.Error(err, "unable to create Job for CronJob", "job", job)
+		return ctrl.Result{}, err
+	}
+
+	log.V(1).Info("created Job for CronJob run", "job", job)
 
 	return ctrl.Result{}, nil
 }
