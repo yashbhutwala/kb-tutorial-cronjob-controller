@@ -72,10 +72,19 @@ var (
 // +kubebuilder:rbac:groups=batch,resources=jobs/status,verbs=get
 
 func (r *CronJobReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
-	_ = context.Background()
-	_ = r.Log.WithValues("cronjob", req.NamespacedName)
+	ctx := context.Background()
+	log := r.Log.WithValues("cronjob", req.NamespacedName)
 
 	// your logic here
+	// 1: Load the CronJob by name
+	var cronJob batchv1.CronJob
+	if err := r.Get(ctx, req.NamespacedName, &cronJob); err != nil {
+		log.Error(err, "unable to fetch CronJob")
+		// we'll ignore not-found errors, since they can't be fixed by an immediate
+		// requeue (we'll need to wait for a new notification), and we can get them
+		// on deleted requests.
+		return ctrl.Result{}, ignoreNotFound(err)
+	}
 
 	return ctrl.Result{}, nil
 }
