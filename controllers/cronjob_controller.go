@@ -23,7 +23,7 @@ import (
 
 	"github.com/go-logr/logr"
 	// "github.com/robfig/cron"
-	// kbatch "k8s.io/api/batch/v1"
+	kbatch "k8s.io/api/batch/v1"
 	// corev1 "k8s.io/api/core/v1"
 	apierrs "k8s.io/apimachinery/pkg/api/errors"
 	// metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -84,6 +84,15 @@ func (r *CronJobReconciler) Reconcile(req ctrl.Request) (ctrl.Result, error) {
 		// requeue (we'll need to wait for a new notification), and we can get them
 		// on deleted requests.
 		return ctrl.Result{}, ignoreNotFound(err)
+	}
+
+	// 2: List all active jobs, and update the status
+
+	// list all child jobs in this namespace that belong to this CronJob
+	var childJobs kbatch.JobList
+	if err := r.List(ctx, &childJobs, client.InNamespace(req.Namespace), client.MatchingField(cronJob.GetName(), req.Name)); err != nil {
+		log.Error(err, "unable to list child Jobs")
+		return ctrl.Result{}, err
 	}
 
 	return ctrl.Result{}, nil
