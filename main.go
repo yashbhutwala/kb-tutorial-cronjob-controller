@@ -21,6 +21,7 @@ import (
 
 	batchv1 "github.com/yashbhutwala/kb-tutorial-cronjob-controller/api/v1"
 	"github.com/yashbhutwala/kb-tutorial-cronjob-controller/controllers"
+	kbatchv1beta1 "k8s.io/api/batch/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	_ "k8s.io/client-go/plugin/pkg/client/auth/gcp"
@@ -37,6 +38,7 @@ var (
 func init() {
 	_ = clientgoscheme.AddToScheme(scheme)
 
+	_ = kbatchv1beta1.AddToScheme(scheme) // we've added this ourselves
 	_ = batchv1.AddToScheme(scheme)
 	// +kubebuilder:scaffold:scheme
 }
@@ -64,6 +66,7 @@ func main() {
 	if err = (&controllers.CronJobReconciler{
 		Client: mgr.GetClient(),
 		Log:    ctrl.Log.WithName("controllers").WithName("CronJob"),
+		Scheme: mgr.GetScheme(), // we've added this ourselves
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "CronJob")
 		os.Exit(1)
